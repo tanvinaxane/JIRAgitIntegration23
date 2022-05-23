@@ -32,7 +32,7 @@ jobs:
       # Runs a set of commands using the runners shell
       - name: Run a multi-line script
         run: |
-          mkdrir newrepo23
+          mkdir newrepo23
           cd newrepo23
           git init
           echo Add other actions to build,
