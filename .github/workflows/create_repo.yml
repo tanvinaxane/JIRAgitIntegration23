@@ -1,0 +1,44 @@
+name: Create repo
+on:
+  workflow_dispatch:
+    inputs:
+      repoName:
+        type: string
+        description: 'The name of the repository to be created'
+        required:    true   
+      jiraId:
+        type: string
+        description: 'The jira id associated with repositoy creation'
+        required:    true   
+env:
+  OWNER: tanvinaxane
+
+jobs:
+  trigger_action:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Calling create repo git api
+        id: createRepoId 
+        run: |
+          curl -X POST -H "Authorization:${{secrets.GIT_API_TOKEN_TANVI}}" -H "Accept:application/vnd.github.v3+json" https://api.github.com/orgs/${OWNER}/repos -o repos.json -d '{"name":"${{ github.event.inputs.repoName }}","description":"This repository is created from JIRA","homepage":"https://github.com","private":false,"has_issues":true,"has_projects":true,"has_wiki":true}'
+          errorMessage="$(jq -r '.message' repos.json)"
+          errorDetail="$(jq -r '.errors[0].message' repos.json)"
+          if [ "${errorMessage}" == null ] ;  then 
+              echo "::set-output name=createRepoOutput::Repository created successfully"
+          else
+              echo "::set-output name=createRepoOutput::ERROR while creating repository-${errorMessage}-${errorDetail}"
+          fi
+   
+        
+      - name: JIRA Login
+        uses: atlassian/gajira-login@v2.0.0
+        env:
+            JIRA_BASE_URL: https://tanvinaxane.atlassian.net
+            JIRA_USER_EMAIL: tanvinaxane@gmail.com
+            JIRA_API_TOKEN: ${{secrets.JIRA_API_TOKEN_TANVI}}
+
+      - name: Jira Add Comment
+        uses: atlassian/gajira-comment@v2.0.2
+        with:
+          issue: ${{ github.event.inputs.jiraId }}
+          comment:  ${{ steps.createRepoId.outputs.createRepoOutput }}
