@@ -5,11 +5,11 @@ on:
       repoName:
         type: string
         description: 'The name of the repository to be created'
-        required:    true   
+        required:   true   
       jiraId:
         type: string
         description: 'The jira id associated with repositoy creation'
-        required:    true   
+        required:   true   
 env:
   OWNER: tanvinaxane
 
