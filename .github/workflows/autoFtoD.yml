@@ -1,0 +1,100 @@
+name: Auto deploy from ECR to ArgoCD, sync repo with ArgoCD
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+
+  deploy:
+    name: Build image
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v2
+
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v1
+      with:
+        version: 'v1.21.3'
+      id: install
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token: ${{ secrets.AWS_TOKEN}}
+        aws-region: us-east-1
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Load secrets and save to app.env
+      run: aws secretsmanager get-secret-value --secret-id testingdockerimage --query SecretString --output text | jq -r 'to_entries|map("\(.key)=\(.value)")|.[]' > app.env
+
+    - name: Build, tag, and push image to Amazon ECR
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: testingdockerimage
+        IMAGE_TAG: ${{ github.sha }}
+        AWS_REGION: us-east-1                                          
+    
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+        docker push -a $ECR_REGISTRY/$ECR_REPOSITORY 
+        echo "testing Auto deploy from ECR to Kubernetes"
+
+  - name: Auto deploy from ECR to Kubernetes using ArgoCD
+       - uses: actions/checkout@v2
+      - name: Sync ArgoCD Application
+        uses: omegion/argocd-actions@v1
+        with:
+          address: "a867a311ffe544ac885bb44c65c553b2-70831757.us-east-1.elb.amazonaws.com"name: Create repo
+on:
+  workflow_dispatch:
+    inputs:
+      repoName:
+        type: string
+        description: 'The name of the repository to be created'
+        required:   true   
+      jiraId:
+        type: string
+        description: 'The jira id associated with repositoy creation'
+        required:   true   
+env:
+  OWNER: tanvinaxane
+
+jobs:
+  trigger_action:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Calling create repo git api
+        id: createRepoId 
+        run: |
+          curl -X POST -H "Authorization:${{secrets.GIT_API_TOKEN_TANVI}}" -H "Accept:application/vnd.github.v3+json" https://api.github.com/orgs/${OWNER}/repos -o repos.json -d '{"name":"${{ github.event.inputs.repoName }}","description":"This repository is created from JIRA","homepage":"https://github.com","private":false,"has_issues":true,"has_projects":true,"has_wiki":true}'
+          errorMessage="$(jq -r '.message' repos.json)"
+          errorDetail="$(jq -r '.errors[0].message' repos.json)"
+          if [ "${errorMessage}" == null ] ;  then 
+              echo "::set-output name=createRepoOutput::Repository created successfully"
+          else
+              echo "::set-output name=createRepoOutput::ERROR while creating repository-${errorMessage}-${errorDetail}"
+          fi
+   
+      - name: JIRA Login
+        uses: atlassian/gajira-login@v2.0.0
+        env:
+            JIRA_BASE_URL: https://tanvinaxane.atlassian.net
+            JIRA_USER_EMAIL: tanvinaxane@gmail.com
+            JIRA_API_TOKEN: ${{secrets.JIRA_API_TOKEN_TANVI}}
+
+      - name: Jira Add Comment
+        uses: atlassian/gajira-comment@v2.0.2
+        with:
+          issue: ${{ github.event.inputs.jiraId }}
+          comment:  ${{ steps.createRepoId.outputs.createRepoOutput }}
+          token: ${{ secrets.ARGOCD_TOKEN }}
+          action: sync
+          appName: "my-example-app"
